@@ -8,7 +8,7 @@ Globals:
     Timeout: 300
     MemorySize: 2048
     Architectures:
-      - arm64
+      - x86_64
     EphemeralStorage:
       Size: 1024
     Environment:
