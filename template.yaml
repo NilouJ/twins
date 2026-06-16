@@ -8,7 +8,11 @@ Description: >
 # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
   Function:
-    Timeout: 3
+    Runtime: python3.12
+    Timeout: 180
+    MemorySize: 2048
+    Architectures:
+      - arm64
 
 Resources:
   HelloWorldFunction:
