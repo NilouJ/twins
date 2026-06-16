@@ -60,14 +60,6 @@ def now_utc() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def download_pdf(input_s3_uri: str, doc_id: str) -> str:
-    bucket, key = parse_s3_uri(input_s3_uri)
-    ext = key.rsplit(".", 1)[-1] if "." in key else "pdf"
-    local_path = f"/tmp/{doc_id}.{ext}"
-    s3.download_file(bucket, key, local_path)
-    return local_path
-
-
 def write_json(payload: Dict[str, Any], output_s3_uri: str) -> str:
     bucket, key = parse_s3_uri(output_s3_uri)
     s3.put_object(
@@ -79,12 +71,11 @@ def write_json(payload: Dict[str, Any], output_s3_uri: str) -> str:
     return output_s3_uri
 
 
-async def extract_text(local_path: str) -> str:
-    document = await asyncio.to_thread(
-        extractor.detect_document_text,
-        file_source=local_path,
-    )
-    return document.text or ""
+async def extract_text(source: str) -> str:
+    def _detect():
+        doc = extractor.start_document_text_detection(file_source=source)
+        return doc.text or ""
+    return await asyncio.to_thread(_detect)
 
 
 def build_prompt(doc_id: str, extracted_text: str) -> str:
@@ -196,8 +187,7 @@ async def classify_document(payload: Dict[str, Any]):
             f"{output_prefix}{doc_id}_classification.json",
         )
 
-        local_path = download_pdf(input_pdf_s3_uri, doc_id)
-        extracted_text = await extract_text(local_path)
+        extracted_text = await extract_text(input_pdf_s3_uri)
 
         raw_payload = {
             "doc_id": doc_id,
