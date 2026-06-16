@@ -1,7 +1,5 @@
-requests
 fastapi
 mangum
 boto3
-amazon-textract-textractor
 amazon-textract-textractor[pdfium]
 anthropic
