@@ -7,7 +7,7 @@ import uuid
 import time
 import asyncio
 from datetime import datetime, timezone
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Union, Coroutine
 from urllib.parse import urlparse
 
 import boto3
@@ -109,7 +109,7 @@ async def extract_text(source: str) -> str:
     return await asyncio.to_thread(_detect)
 
 
-async def extract_text_start_s3(source: str) -> str:
+async def extract_text_start_s3(source: str) -> dict[str, Union[str, Any]]:
     bucket, key = parse_s3_uri(source)
 
     # Start async Textract job
@@ -123,16 +123,14 @@ async def extract_text_start_s3(source: str) -> str:
         Body=json.dumps({"job_id": job_id}).encode("utf-8"),
         ContentType="application/json",
     )
-    return job_id
+    return {
+        "status": "started",
+        "job_id": job_id,
+        "bucket": bucket,
+    }
 
 
-async def extract_text_collect_s3(job_id_json: str) -> str:
-    bucket, key = parse_s3_uri(job_id_json)
-
-    # read the json from s3 and parse it into a dict
-    data = json.loads(s3.get_object(Bucket=bucket, Key=key)["Body"].read())
-    job_id = data["job_id"]
-
+async def extract_text_collect_s3(job_id: str, bucket: str) -> str:
     # check the job status
     resp = textract.get_document_text_detection(JobId=job_id)
     status = resp["JobStatus"]
@@ -256,23 +254,23 @@ async def start_ocr(payload: Dict[str, Any]):
         raise HTTPException(status_code=400, detail="Missing input_pdf_s3_uri")
 
     try:
-        job_id = await extract_text_start_s3(input_pdf_s3_uri)
-        return {
-            "status": "started",
-            "job_id": job_id,
-        }
+        result = await extract_text_start_s3(input_pdf_s3_uri)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/ocr/collect")
 async def collect_ocr(payload: Dict[str, Any]):
-    job_id_json = payload.get("job_id_json")
-    if not job_id_json:
-        raise HTTPException(status_code=400, detail="Missing job_id_json")
+    job_id = payload.get("job_id")
+    bucket = payload.get("bucket")
+    if not job_id:
+        raise HTTPException(status_code=400, detail="Missing job_id")
+    if not bucket:
+        raise HTTPException(status_code=400, detail="Missing bucket")
 
     try:
-        extracted_text = await extract_text_collect_s3(job_id_json)
+        extracted_text = await extract_text_collect_s3(job_id, bucket)
         if extracted_text is None:
             return {
                 "status": "pending",
