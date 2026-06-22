@@ -7,7 +7,7 @@ import uuid
 import time
 import asyncio
 from datetime import datetime, timezone
-from typing import Any, Dict, Tuple, Union, Coroutine
+from typing import Any, Dict, Tuple, Union
 from urllib.parse import urlparse
 
 import boto3
@@ -137,7 +137,7 @@ async def extract_text_start_s3(source: str) -> dict[str, Union[str, Any]]:
     job_id = start["JobId"]
 
     s3.put_object(
-        Bucket=bucket,
+        Bucket=TEXTRACT_RESULTS_BUCKET,
         Key=f"textract_jobs/{job_id}.json",
         Body=json.dumps({
             "job_id": job_id,
@@ -157,7 +157,7 @@ async def extract_text_start_s3(source: str) -> dict[str, Union[str, Any]]:
     }
 
 
-async def extract_text_collect_s3(job_id: str, bucket: str) -> str:
+async def extract_text_collect_s3(job_id: str) -> str:
     # check the job status
     resp = textract.get_document_text_detection(JobId=job_id)
     status = resp["JobStatus"]
@@ -179,7 +179,7 @@ async def extract_text_collect_s3(job_id: str, bucket: str) -> str:
         next_token = page.get("NextToken")
 
     # Join all LINE blocks into text
-    lines = [b["Text"] for b in blocks if b["BlockType"] == "LINE"]
+    lines = [b["Text"] for b in blocks if b["BlockType"] == "LINE" and "Text" in b]
 
     return "\n".join(lines)
 
@@ -281,14 +281,11 @@ async def start_ocr(payload: Dict[str, Any]):
 @app.post("/api/ocr/collect")
 async def collect_ocr(payload: Dict[str, Any]):
     job_id = payload.get("job_id")
-    bucket = payload.get("bucket")
     if not job_id:
         raise HTTPException(status_code=400, detail="Missing job_id")
-    if not bucket:
-        raise HTTPException(status_code=400, detail="Missing bucket")
 
     try:
-        extracted_text = await extract_text_collect_s3(job_id, bucket)
+        extracted_text = await extract_text_collect_s3(job_id)
         if extracted_text is None:
             return {
                 "status": "pending",
@@ -418,20 +415,18 @@ async def list_results(limit: int = 20):
                 "results": [],
             }
 
-        # newest first
+        # newest first, json only
         objects = sorted(
             objects,
-            key=lambda obj: obj["LastModified"],
+            key=lambda o: o["LastModified"],
             reverse=True,
-        )[:limit]
+        )
+        objects = [o for o in objects if o["Key"].endswith(".json")][:limit]
 
         results = []
 
         for obj in objects:
             key = obj["Key"]
-
-            if not key.endswith(".json"):
-                continue
 
             file_response = s3.get_object(
                 Bucket=TEXTRACT_RESULTS_BUCKET,
@@ -448,7 +443,7 @@ async def list_results(limit: int = 20):
                 "completed_at": payload.get("completed_at"),
                 "text_chars": len(payload.get("extracted_text", "")),
                 "extracted_text_preview": payload.get("extracted_text", "")[:300],
-                "classification": payload.get("classification"),  # will be null for now
+                "classification": payload.get("classification"),
             })
 
         return {
