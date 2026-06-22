@@ -117,14 +117,10 @@ async def extract_text_start_s3(source: str) -> str:
         DocumentLocation={"S3Object": {"Bucket": bucket, "Name": key}}
     )
     job_id = start["JobId"]
-
-    # Saving started job_ids and status on s3
-    resp = textract.get_document_text_detection(JobId=job_id)
-    status = resp["JobStatus"]
     s3.put_object(
         Bucket=bucket,
         Key=f"textract_jobs/{job_id}.json",
-        Body=json.dumps({"job_id": job_id, "status": status}).encode("utf-8"),
+        Body=json.dumps({"job_id": job_id}).encode("utf-8"),
         ContentType="application/json",
     )
     return job_id
