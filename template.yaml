@@ -40,30 +40,32 @@ Resources:
       FunctionName: twins-document-classifier-api
       CodeUri: twins_textract/
       Handler: app.handler
-      Policies:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-        - Statement:
-            - Effect: Allow
-              Action:
-                - s3:GetObject
-                - s3:PutObject
-              Resource:
-                - arn:aws:s3:::twins-lambdas/*
-            - Effect: Allow
-              Action:
-                - textract:DetectDocumentText
-                - textract:AnalyzeDocument
-                - textract:StartDocumentTextDetection
-                - textract:GetDocumentTextDetection
-                - textract:StartDocumentAnalysis
-                - textract:GetDocumentAnalysis
-              Resource: "*"
-            - Effect: Allow
-              Action:
-                - bedrock:InvokeModel
-                - bedrock:InvokeModelWithResponseStream
-              Resource:
-                - arn:aws:bedrock:ap-southeast-2::foundation-model/anthropic.claude-3-haiku-20240307-v1:0
+#      Policies:
+#        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+#        - Statement:
+#            - Effect: Allow
+#              Action:
+#                - s3:GetObject
+#                - s3:PutObject
+#              Resource:
+#                - arn:aws:s3:::twins-lambdas/*
+#            - Effect: Allow
+#              Action:
+#                - textract:DetectDocumentText
+#                - textract:AnalyzeDocument
+#                - textract:StartDocumentTextDetection
+#                - textract:GetDocumentTextDetection
+#                - textract:StartDocumentAnalysis
+#                - textract:GetDocumentAnalysis
+#              Resource: "*"
+#            - Effect: Allow
+#              Action:
+#                - bedrock:InvokeModel
+#                - bedrock:InvokeModelWithResponseStream
+#              Resource:
+#                - arn:aws:bedrock:ap-southeast-2::foundation-model/anthropic.claude-3-haiku-20240307-v1:0
+
+      Role: arn:aws:iam::117134819170:role/Bedrock-LambdaRolejp
       Events:
         Root:
           Type: HttpApi
