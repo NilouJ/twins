@@ -21,6 +21,15 @@ MODEL_ID = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-haiku-20240307-v1:0
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "1500"))
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0"))
 CONCURRENCY = int(os.getenv("CONCURRENCY", "3"))
+TEXTRACT_SNS_TOPIC_ARN = os.getenv(
+    "TEXTRACT_SNS_TOPIC_ARN",
+    "arn:aws:sns:ap-southeast-2:117134819170:twins-textract-complete-topic",
+)
+TEXTRACT_SNS_ROLE_ARN = os.getenv(
+    "TEXTRACT_SNS_ROLE_ARN",
+    "arn:aws:iam::117134819170:role/service-role/sns-publisher-role-t22l2yc9",
+)
+TEXTRACT_RESULTS_BUCKET = os.getenv("TEXTRACT_RESULTS_BUCKET", "twins-lambdas")
 
 s3 = boto3.client("s3", region_name=AWS_REGION)
 textract = boto3.client("textract", region_name=AWS_REGION)
@@ -114,15 +123,33 @@ async def extract_text_start_s3(source: str) -> dict[str, Union[str, Any]]:
 
     # Start async Textract job
     start = textract.start_document_text_detection(
-        DocumentLocation={"S3Object": {"Bucket": bucket, "Name": key}}
-    )
+    DocumentLocation={
+        "S3Object": {
+            "Bucket": bucket,
+            "Name": key,
+        }
+    },
+    NotificationChannel={
+        "SNSTopicArn": TEXTRACT_SNS_TOPIC_ARN,
+        "RoleArn": TEXTRACT_SNS_ROLE_ARN,
+    }
+)
     job_id = start["JobId"]
+
     s3.put_object(
         Bucket=bucket,
         Key=f"textract_jobs/{job_id}.json",
-        Body=json.dumps({"job_id": job_id}).encode("utf-8"),
+        Body=json.dumps({
+            "job_id": job_id,
+            "bucket": bucket,
+            "source_key": key,
+            "source_pdf_s3_uri": source,
+            "status": "started",
+            "created_at": now_utc(),
+        }).encode("utf-8"),
         ContentType="application/json",
     )
+
     return {
         "status": "started",
         "job_id": job_id,
@@ -154,16 +181,7 @@ async def extract_text_collect_s3(job_id: str, bucket: str) -> str:
     # Join all LINE blocks into text
     lines = [b["Text"] for b in blocks if b["BlockType"] == "LINE"]
 
-    # save results in S3
-    s3.put_object(
-        Bucket=bucket,
-        Key=f"textract_jobs_results/{job_id}.json",
-        Body=json.dumps({"job_id": job_id, "lines": lines}).encode("utf-8"),
-        ContentType="application/json",
-    )
-
     return "\n".join(lines)
-
 
 
 def build_prompt(doc_id: str, extracted_text: str) -> str:
@@ -370,6 +388,73 @@ async def classify_document(payload: Dict[str, Any]):
             "stats": {
                 "text_chars": len(extracted_text),
             },
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/results")
+async def list_results(limit: int = 20):
+    """
+    Live results list.
+    Frontend calls this every few seconds.
+    It scans S3 and returns latest OCR/classification results.
+    """
+    prefix = "textract_jobs_results/"
+
+    try:
+        response = s3.list_objects_v2(
+            Bucket=TEXTRACT_RESULTS_BUCKET,
+            Prefix=prefix,
+        )
+
+        objects = response.get("Contents", [])
+
+        if not objects:
+            return {
+                "status": "ok",
+                "count": 0,
+                "results": [],
+            }
+
+        # newest first
+        objects = sorted(
+            objects,
+            key=lambda obj: obj["LastModified"],
+            reverse=True,
+        )[:limit]
+
+        results = []
+
+        for obj in objects:
+            key = obj["Key"]
+
+            if not key.endswith(".json"):
+                continue
+
+            file_response = s3.get_object(
+                Bucket=TEXTRACT_RESULTS_BUCKET,
+                Key=key,
+            )
+
+            body = file_response["Body"].read().decode("utf-8")
+            payload = json.loads(body)
+
+            results.append({
+                "job_id": payload.get("job_id"),
+                "status": payload.get("status", "completed"),
+                "ocr_result_s3_uri": f"s3://{TEXTRACT_RESULTS_BUCKET}/{key}",
+                "completed_at": payload.get("completed_at"),
+                "text_chars": len(payload.get("extracted_text", "")),
+                "extracted_text_preview": payload.get("extracted_text", "")[:300],
+                "classification": payload.get("classification"),  # will be null for now
+            })
+
+        return {
+            "status": "ok",
+            "count": len(results),
+            "results": results,
         }
 
     except Exception as e:

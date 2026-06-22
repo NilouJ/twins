@@ -18,6 +18,9 @@ Globals:
         MAX_TOKENS: "5000"
         TEMPERATURE: "0"
         CONCURRENCY: "5"
+        TEXTRACT_SNS_TOPIC_ARN: arn:aws:sns:ap-southeast-2:117134819170:twins-textract-complete-topic
+        TEXTRACT_SNS_ROLE_ARN: arn:aws:iam::117134819170:role/service-role/sns-publisher-role-t22l2yc9
+        TEXTRACT_RESULTS_BUCKET: twins-lambdas
 
 Resources:
   TwinsHttpApi:
@@ -40,31 +43,6 @@ Resources:
       FunctionName: twins-document-classifier-api
       CodeUri: twins_textract/
       Handler: app.handler
-#      Policies:
-#        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-#        - Statement:
-#            - Effect: Allow
-#              Action:
-#                - s3:GetObject
-#                - s3:PutObject
-#              Resource:
-#                - arn:aws:s3:::twins-lambdas/*
-#            - Effect: Allow
-#              Action:
-#                - textract:DetectDocumentText
-#                - textract:AnalyzeDocument
-#                - textract:StartDocumentTextDetection
-#                - textract:GetDocumentTextDetection
-#                - textract:StartDocumentAnalysis
-#                - textract:GetDocumentAnalysis
-#              Resource: "*"
-#            - Effect: Allow
-#              Action:
-#                - bedrock:InvokeModel
-#                - bedrock:InvokeModelWithResponseStream
-#              Resource:
-#                - arn:aws:bedrock:ap-southeast-2::foundation-model/anthropic.claude-3-haiku-20240307-v1:0
-
       Role: arn:aws:iam::117134819170:role/Bedrock-LambdaRolejp
       Events:
         Root:
@@ -79,6 +57,19 @@ Resources:
             ApiId: !Ref TwinsHttpApi
             Path: /{proxy+}
             Method: ANY
+
+  TwinsTextractCollectorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: twins-textract-sns-collector
+      CodeUri: twins_textract/
+      Handler: sns_collector.handler
+      Role: arn:aws:iam::117134819170:role/Bedrock-LambdaRolejp
+      Events:
+        TextractCompleted:
+          Type: SNS
+          Properties:
+            Topic: arn:aws:sns:ap-southeast-2:117134819170:twins-textract-complete-topic
 
 Outputs:
   ApiUrl:
